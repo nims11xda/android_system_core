@@ -19,6 +19,9 @@
 #include <unistd.h>
 #include <string.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 
 #include "fdevent.h"
 #include "adb.h"
@@ -161,7 +164,7 @@ void framebuffer_service(int fd, void *cookie)
     if(writex(fd, &fbinfo, sizeof(fbinfo))) goto done;
 
     /* write data */
-    for(i = sizeof(buf) - 1; i < fbinfo.size; i += sizeof(buf)) {
+    for(i = 0; i < fbinfo.size; i += sizeof(buf)) {
       if(readx(fd_screencap, buf, sizeof(buf))) goto done;
       if(writex(fd, buf, sizeof(buf))) goto done;
     }
@@ -169,6 +172,8 @@ void framebuffer_service(int fd, void *cookie)
     if(writex(fd, buf, fbinfo.size % sizeof(buf))) goto done;
 
 done:
+    TEMP_FAILURE_RETRY(waitpid(pid, NULL, 0));
+
     close(fds[0]);
     close(fds[1]);
     close(fd);

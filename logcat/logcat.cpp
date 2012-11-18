@@ -101,7 +101,7 @@ static EventTagMap* g_eventTagMap = NULL;
 
 static int openLogFile (const char *pathname)
 {
-    return open(g_outputFileName, O_WRONLY | O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
+    return open(pathname, O_WRONLY | O_APPEND | O_CREAT, S_IRUSR | S_IWUSR);
 }
 
 static void rotateLogs()
@@ -410,8 +410,7 @@ static void show_help(const char *cmd)
                     "  -b <buffer>     Request alternate ring buffer, 'main', 'system', 'radio'\n"
                     "                  or 'events'. Multiple -b parameters are allowed and the\n"
                     "                  results are interleaved. The default is -b main -b system.\n"
-                    "  -B              output the log in binary\n"
-                    "  -C              colored output");
+                    "  -B              output the log in binary");
 
 
     fprintf(stderr,"\nfilterspecs are a series of \n"
@@ -453,11 +452,6 @@ static int setLogFormat(const char * formatString)
     return 0;
 }
 
-static void setColoredOutput()
-{
-    android_log_setColoredOutput(g_logformat);
-}
-
 extern "C" void logprint_run_tests(void);
 
 int main(int argc, char **argv)
@@ -487,7 +481,7 @@ int main(int argc, char **argv)
     for (;;) {
         int ret;
 
-        ret = getopt(argc, argv, "cdt:gsQf:r::n:v:b:BC");
+        ret = getopt(argc, argv, "cdt:gsQf:r::n:v:b:B");
 
         if (ret < 0) {
             break;
@@ -515,10 +509,6 @@ int main(int argc, char **argv)
 
             case 'g':
                 getLogSize = 1;
-            break;
-
-            case 'C':
-                setColoredOutput();
             break;
 
             case 'b': {
@@ -669,14 +659,14 @@ int main(int argc, char **argv)
     }
 
     if (!devices) {
-        devices = new log_device_t(strdup("/dev/" LOGGER_LOG_MAIN), false, 'm');
+        devices = new log_device_t(strdup("/dev/"LOGGER_LOG_MAIN), false, 'm');
         android::g_devCount = 1;
         int accessmode =
                   (mode & O_RDONLY) ? R_OK : 0
                 | (mode & O_WRONLY) ? W_OK : 0;
         // only add this if it's available
-        if (0 == access("/dev/" LOGGER_LOG_SYSTEM, accessmode)) {
-            devices->next = new log_device_t(strdup("/dev/" LOGGER_LOG_SYSTEM), false, 's');
+        if (0 == access("/dev/"LOGGER_LOG_SYSTEM, accessmode)) {
+            devices->next = new log_device_t(strdup("/dev/"LOGGER_LOG_SYSTEM), false, 's');
             android::g_devCount++;
         }
     }

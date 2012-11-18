@@ -36,11 +36,6 @@ int property_set(const char *key, const char *value)
     return __system_property_set(key, value);
 }
 
-int property_set_sync(const char *key, const char *value)
-{
-    return __system_property_set(key, value);
-}
-
 int property_get(const char *key, char *value, const char *default_value)
 {
     int len;
@@ -100,10 +95,7 @@ static int connectToServer(const char* fileName)
     int sock = -1;
     int cc;
 
-    union {
-        struct sockaddr_un un;
-        struct sockaddr generic;
-    } addr;
+    struct sockaddr_un addr;
     
     sock = socket(AF_UNIX, SOCK_STREAM, 0);
     if (sock < 0) {
@@ -112,9 +104,9 @@ static int connectToServer(const char* fileName)
     }
 
     /* connect to socket; fails if file doesn't exist */
-    strcpy(addr.un.sun_path, fileName);    // max 108 bytes
-    addr.un.sun_family = AF_UNIX;
-    cc = connect(sock, &addr.generic, SUN_LEN(&addr.un));
+    strcpy(addr.sun_path, fileName);    // max 108 bytes
+    addr.sun_family = AF_UNIX;
+    cc = connect(sock, (struct sockaddr*) &addr, SUN_LEN(&addr));
     if (cc < 0) {
         // ENOENT means socket file doesn't exist
         // ECONNREFUSED means socket exists but nobody is listening

@@ -15,7 +15,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/wait.h>
 #include <sys/stat.h>
 #include <fcntl.h>
 #include <unistd.h>
@@ -24,7 +23,6 @@
 #include <linux/kd.h>
 #include <errno.h>
 #include <sys/socket.h>
-#include <sys/wait.h>
 #include <netinet/in.h>
 #include <linux/if.h>
 #include <arpa/inet.h>
@@ -55,7 +53,6 @@
 void add_environment(const char *name, const char *value);
 
 extern int init_module(void *, unsigned long, const char *);
-extern int init_export_rc_file(const char *);
 
 static int write_file(const char *path, const char *value)
 {
@@ -80,47 +77,61 @@ static int write_file(const char *path, const char *value)
     }
 }
 
+static int _open(const char *path)
+{
+    int fd;
+
+    fd = open(path, O_RDONLY | O_NOFOLLOW);
+    if (fd < 0)
+        fd = open(path, O_WRONLY | O_NOFOLLOW);
+
+    return fd;
+}
 
 static int _chown(const char *path, unsigned int uid, unsigned int gid)
 {
+    int fd;
     int ret;
 
-    struct stat p_statbuf;
+    fd = _open(path);
+    if (fd < 0) {
+        return -1;
+    }
 
-    ret = lstat(path, &p_statbuf);
+    ret = fchown(fd, uid, gid);
     if (ret < 0) {
+        int errno_copy = errno;
+        close(fd);
+        errno = errno_copy;
         return -1;
     }
 
-    if (S_ISLNK(p_statbuf.st_mode) == 1) {
-        errno = EINVAL;
-        return -1;
-    }
+    close(fd);
 
-    ret = chown(path, uid, gid);
-
-    return ret;
+    return 0;
 }
 
 static int _chmod(const char *path, mode_t mode)
 {
+    int fd;
     int ret;
 
-    struct stat p_statbuf;
+    fd = _open(path);
+    if (fd < 0) {
+        return -1;
+    }
 
-    ret = lstat(path, &p_statbuf);
+    ret = fchmod(fd, mode);
     if (ret < 0) {
+        int errno_copy = errno;
+        close(fd);
+        errno = errno_copy;
         return -1;
     }
 
-    if (S_ISLNK(p_statbuf.st_mode) == 1) {
-        errno = EINVAL;
-        return -1;
-    }
+    close(fd);
 
-    ret = chmod(path, mode);
-
-    return ret;
+    return 0;
 }
 
 static int insmod(const char *filename, char *options)
@@ -223,84 +234,14 @@ int do_class_reset(int nargs, char **args)
     return 0;
 }
 
-int do_export_rc(int nargs, char **args)
-{
-        /* Import environments from a specified file.
-         * The file content is of the form:
-         *     export <env name> <value>
-         * e.g.
-         *     export LD_PRELOAD /system/lib/xyz.so
-         *     export PROMPT abcde
-         * Differences between "import" and "export_rc":
-         * 1) export_rc can only import environment vars
-         * 2) export_rc is performed when the command
-         *    is executed rather than at the time the
-         *    command is parsed (i.e. "import")
-         */
-    return init_export_rc_file(args[1]);
-}
-
 int do_domainname(int nargs, char **args)
 {
     return write_file("/proc/sys/kernel/domainname", args[1]);
 }
 
-/*exec <path> <arg1> <arg2> ... */
-#define MAX_PARAMETERS 64
 int do_exec(int nargs, char **args)
 {
-    pid_t pid;
-    int status, i, j;
-    char *par[MAX_PARAMETERS];
-    char prop_val[PROP_VALUE_MAX];
-    int len;
-
-    if (nargs > MAX_PARAMETERS)
-    {
-        return -1;
-    }
-    for(i=0, j=1; i<(nargs-1) ;i++,j++)
-    {
-        if ((args[j])
-            &&
-            (!expand_props(prop_val, args[j], sizeof(prop_val))))
-
-        {
-            len = strlen(args[j]);
-            if (strlen(prop_val) <= len) {
-                /* Overwrite arg with expansion.
-                 *
-                 * For now, only allow an expansion length that
-                 * can fit within the original arg length to
-                 * avoid extra allocations.
-                 * On failure, use original argument.
-                 */
-                strncpy(args[j], prop_val, len + 1);
-            }
-        }
-        par[i] = args[j];
-    }
-    par[i] = (char*)0;
-    pid = fork();
-    if (!pid)
-    {
-        char tmp[32];
-        int fd, sz;
-        get_property_workspace(&fd, &sz);
-        sprintf(tmp, "%d,%d", dup(fd), sz);
-        setenv("ANDROID_PROPERTY_WORKSPACE", tmp, 1);
-        execve(par[0],par,environ);
-        exit(0);
-    }
-    else
-    {
-        while (waitpid(pid, &status, 0) == -1 && errno == EINTR);
-        if (WEXITSTATUS(status) != 0) {
-            ERROR("exec: pid %1d exited with return code %d: %s", (int)pid, WEXITSTATUS(status), strerror(status));
-        }
-
-    }
-    return 0;
+    return -1;
 }
 
 int do_export(int nargs, char **args)
@@ -350,32 +291,6 @@ int do_insmod(int nargs, char **args)
     return do_insmod_inner(nargs, args, size);
 }
 
-int do_log(int nargs, char **args)
-{
-    char* par[nargs+3];
-    char* value;
-    int i;
-
-    par[0] = "exec";
-    par[1] = "/system/bin/log";
-    par[2] = "-tinit";
-    for (i = 1; i < nargs; ++i) {
-        value = args[i];
-        if (value[0] == '$') {
-            /* system property if value starts with '$' */
-            value++;
-            if (value[0] != '$') {
-                value = (char*) property_get(value);
-                if (!value) value = args[i];
-            }
-        }
-        par[i+2] = value;
-    }
-    par[nargs+2] = NULL;
-
-    return do_exec(nargs+2, par);
-}
-
 int do_mkdir(int nargs, char **args)
 {
     mode_t mode = 0755;
@@ -387,7 +302,7 @@ int do_mkdir(int nargs, char **args)
         mode = strtoul(args[2], 0, 8);
     }
 
-    ret = mkdir(args[1], mode);
+    ret = make_dir(args[1], mode);
     /* chmod in case the directory already exists */
     if (ret == -1 && errno == EEXIST) {
         ret = _chmod(args[1], mode);
@@ -407,6 +322,14 @@ int do_mkdir(int nargs, char **args)
         if (_chown(args[1], uid, gid) < 0) {
             return -errno;
         }
+
+        /* chown may have cleared S_ISUID and S_ISGID, chmod again */
+        if (mode & (S_ISUID | S_ISGID)) {
+            ret = _chmod(args[1], mode);
+            if (ret == -1) {
+                return -errno;
+            }
+        }
     }
 
     return 0;
@@ -424,6 +347,12 @@ static struct {
     { "ro",         MS_RDONLY },
     { "rw",         0 },
     { "remount",    MS_REMOUNT },
+    { "bind",       MS_BIND },
+    { "rec",        MS_REC },
+    { "unbindable", MS_UNBINDABLE },
+    { "private",    MS_PRIVATE },
+    { "slave",      MS_SLAVE },
+    { "shared",     MS_SHARED },
     { "defaults",   0 },
     { 0,            0 },
 };
@@ -667,7 +596,8 @@ int do_restart(int nargs, char **args)
     struct service *svc;
     svc = service_find_by_name(args[1]);
     if (svc) {
-        service_restart(svc);
+        service_stop(svc);
+        service_start(svc, NULL);
     }
     return 0;
 }
@@ -820,26 +750,12 @@ int do_chmod(int nargs, char **args) {
 }
 
 int do_restorecon(int nargs, char **args) {
-#ifdef HAVE_SELINUX
-    char *secontext = NULL;
-    struct stat sb;
     int i;
 
-    if (is_selinux_enabled() <= 0 || !sehandle)
-        return 0;
-
     for (i = 1; i < nargs; i++) {
-        if (lstat(args[i], &sb) < 0)
+        if (restorecon(args[i]) < 0)
             return -errno;
-        if (selabel_lookup(sehandle, &secontext, args[i], sb.st_mode) < 0)
-            return -errno;
-        if (lsetfilecon(args[i], secontext) < 0) {
-            freecon(secontext);
-            return -errno;
-        }
-        freecon(secontext);
     }
-#endif
     return 0;
 }
 
@@ -897,6 +813,8 @@ int do_wait(int nargs, char **args)
 {
     if (nargs == 2) {
         return wait_for_file(args[1], COMMAND_RETRY_TIMEOUT);
-    }
-    return -1;
+    } else if (nargs == 3) {
+        return wait_for_file(args[1], atoi(args[2]));
+    } else
+        return -1;
 }

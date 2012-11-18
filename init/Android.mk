@@ -15,7 +15,8 @@ LOCAL_SRC_FILES:= \
 	signal_handler.c \
 	init_parser.c \
 	ueventd.c \
-	ueventd_parser.c
+	ueventd_parser.c \
+	watchdogd.c
 
 ifeq ($(strip $(INIT_BOOTCHART)),true)
 LOCAL_SRC_FILES += bootchart.c
@@ -25,22 +26,6 @@ endif
 ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DALLOW_LOCAL_PROP_OVERRIDE=1
 endif
-
-ifeq ($(TARGET_NO_INITLOGO),true)
-LOCAL_CFLAGS += -DNO_INITLOGO
-endif
-
-ifneq ($(TARGET_NR_SVC_SUPP_GIDS),)
-LOCAL_CFLAGS += -DNR_SVC_SUPP_GIDS=$(TARGET_NR_SVC_SUPP_GIDS)
-endif
-
-SYSTEM_CORE_INIT_DEFINES := BOARD_CHARGING_MODE_BOOTING_LPM
-
-$(foreach system_core_init_define,$(SYSTEM_CORE_INIT_DEFINES), \
-  $(if $($(system_core_init_define)), \
-    $(eval LOCAL_CFLAGS += -D$(system_core_init_define)=\"$($(system_core_init_define))\") \
-  ) \
-  )
 
 LOCAL_MODULE:= init
 
@@ -58,8 +43,11 @@ endif
 
 include $(BUILD_EXECUTABLE)
 
-# Make a symlink from /sbin/ueventd to /init
-SYMLINKS := $(TARGET_ROOT_OUT)/sbin/ueventd
+# Make a symlink from /sbin/ueventd and /sbin/watchdogd to /init
+SYMLINKS := \
+	$(TARGET_ROOT_OUT)/sbin/ueventd \
+	$(TARGET_ROOT_OUT)/sbin/watchdogd
+
 $(SYMLINKS): INIT_BINARY := $(LOCAL_MODULE)
 $(SYMLINKS): $(LOCAL_INSTALLED_MODULE) $(LOCAL_PATH)/Android.mk
 	@echo "Symlink: $@ -> ../$(INIT_BINARY)"
